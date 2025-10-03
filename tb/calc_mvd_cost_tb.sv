@@ -49,6 +49,10 @@ module calc_mvd_cost_tb;
         .ap_clk                     (clk),
         .ap_rst                     (~rst_n),
         .ap_start                   (start),
+        .ap_ce                      (1'b1),
+        .ap_done                    (),
+        .ap_ready                   (),
+        .ap_idle                    (),
         .x                          (x),
         .y                          (y),
         .mv_shift                   (mv_shift),
@@ -62,6 +66,32 @@ module calc_mvd_cost_tb;
         .lambda_sqrt_decimal_int64  (lambda_sqrt_decimal),
         .mvd_cost_int64             (mvd_cost),
         .mvd_cost_int64_ap_vld      (mvd_cost_vld)
+    );
+
+    calc_mvd_cost_int64_hls hls(
+        .ap_clk                         (clk),
+        .ap_rst                         (~rst_n),
+        .ap_start                       (start),
+        .ap_done                        (),
+        .ap_idle                        (),
+        .ap_ready                       (),
+        .ap_ce                          (1'b1),
+        .ap_core                        ('0),
+        .ap_part                        ('0),
+        .ap_parent                      ('0),
+        .x                              (x),
+        .y                              (y),
+        .mv_shift                       (mv_shift),
+        .mv_cand_0                      (mv_cand[0]),
+        .mv_cand_1                      (mv_cand[1]),
+        .mv_cand_2                      (mv_cand[2]),
+        .mv_cand_3                      (mv_cand[3]),
+        .bitcost                        (),
+        .bitcost_ap_vld                 (),
+        .lambda_sqrt_integer_int64      (lambda_sqrt_integer),
+        .lambda_sqrt_decimal_int64      (lambda_sqrt_decimal),
+        .mvd_cost_int64                 (),
+        .mvd_cost_int64_ap_vld          ()
     );
 
     // Test sequence

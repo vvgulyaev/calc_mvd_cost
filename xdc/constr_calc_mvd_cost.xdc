@@ -5,7 +5,7 @@ set  aclk_inps    [get_ports {\
     x* \
     y* \
     mv_shift* \
-    mv_cand* \,
+    mv_cand* \
     lambda_sqrt_integer_int64* \
     lambda_sqrt_decimal_int64* \
 }]

@@ -3,6 +3,7 @@ module calc_mvd_cost (
     input                       ap_clk,
     input                       ap_rst,
     input                       ap_start,
+    input                       ap_ce,
     output logic                ap_done,
     output logic                ap_ready,
     output logic                ap_idle,
@@ -29,15 +30,25 @@ module calc_mvd_cost (
     logic [31:0] x_shifted, y_shifted;
     logic [63:0] lambda_sqrt_integer_reg, lambda_sqrt_decimal_reg;
     logic [15:0] mv_cand_reg[4];
-    logic [2:0] pipeline_valid;
+    logic [3:0] pipeline_valid;
 
     // Internal signals for select_mv_cand logic
     logic same_cand;
     logic [63:0] cand1_cost, cand2_cost;
     logic [63:0] selected_cost;
 
+    // Stage 3 intermediate values
+    logic [63:0] bitcost_s3;
+    logic [63:0] cost_mult_lambda_int;
+    logic [63:0] cost_mult_lambda_dec;
+
+    logic ap_idle_r;
+    logic ap_done_r;
+
     always_ff @(posedge ap_clk or posedge ap_rst) begin
         if (ap_rst) begin
+            ap_idle_r <= 1'b1;
+            ap_done_r <= 1'b0;
             //stage 1
             x_shifted <= 32'b0;
             y_shifted <= 32'b0;
@@ -52,14 +63,26 @@ module calc_mvd_cost (
             cand2_cost <= 64'b0;
             pipeline_valid[1] <= 1'b0;
 
-            //stage 3
+            //stage3
+            selected_cost <= 0;
+            pipeline_valid[2] <= 1'b0;
+
+            //stage 4
+            bitcost_s3 <= 64'b0;
+            cost_mult_lambda_int <= 64'b0;
+            cost_mult_lambda_dec <= 64'b0;
+            pipeline_valid[3] <= 1'b0;
+
+            //stage 4
             bitcost <= 64'b0;
             bitcost_ap_vld <= 1'b0;
             mvd_cost_int64 <= 64'b0;
             mvd_cost_int64_ap_vld <= 1'b0;
-            pipeline_valid[2] <= 1'b0;
+            pipeline_valid[4] <= 1'b0;
         end
-        else begin
+        else if (ap_ce) begin
+            ap_idle_r <= ap_idle;
+            ap_done_r <= ap_done;
             // Pipeline stage 1: Input processing and shifting
             if (ap_start) begin
                 x_shifted <= x << mv_shift;
@@ -71,13 +94,14 @@ module calc_mvd_cost (
                 mv_cand_reg[2] <= mv_cand_2;
                 mv_cand_reg[3] <= mv_cand_3;
                 pipeline_valid[0] <= 1'b1;
-            end else begin
+            end
+            else begin
                 pipeline_valid[0] <= 1'b0;
             end
 
             // Pipeline stage 2: Calculate MVD costs
             pipeline_valid[1] <= pipeline_valid[0];
-            if (pipeline_valid[0]) begin
+            //if (pipeline_valid[0]) begin
                 // Check if candidates are the same
                 same_cand <= (mv_cand_reg[0] == mv_cand_reg[2]) && (mv_cand_reg[1] == mv_cand_reg[3]);
 
@@ -92,34 +116,51 @@ module calc_mvd_cost (
                     $signed(x_shifted) - $signed(mv_cand_reg[2]),
                     $signed(y_shifted) - $signed(mv_cand_reg[3])
                 );
-            end
+            //end
 
-            // Pipeline stage 3: Select minimum cost and calculate final result
+            // Pipeline stage 3: Select minimum cost
             pipeline_valid[2] <= pipeline_valid[1];
-            bitcost_ap_vld <= pipeline_valid[1];
-            mvd_cost_int64_ap_vld <= pipeline_valid[1];
-
-            if (pipeline_valid[1]) begin
+            //if (pipeline_valid[1]) begin
                 // Select minimum cost
                 if (same_cand) begin
-                    selected_cost = cand1_cost;
-                end else begin
-                    selected_cost = (cand2_cost < cand1_cost) ? cand2_cost : cand1_cost;
+                    selected_cost <= cand1_cost;
                 end
+                else begin
+                    selected_cost <= (cand2_cost < cand1_cost) ? cand2_cost : cand1_cost;
+                end
+            //end
 
-                bitcost <= selected_cost;
+            // Pipeline stage 4: calculate intermediate result
+            pipeline_valid[3] <= pipeline_valid[2];
+            //if (pipeline_valid[2]) begin
+                bitcost_s3 <= selected_cost;
+                cost_mult_lambda_int <= selected_cost * lambda_sqrt_integer_reg;
+                cost_mult_lambda_dec <= selected_cost * lambda_sqrt_decimal_reg;
+            //end
+
+            // Pipeline stage 5: calculate final values
+            bitcost_ap_vld <= pipeline_valid[3];
+            mvd_cost_int64_ap_vld <= pipeline_valid[3];
+            //if (pipeline_valid[3]) begin
+                bitcost <= bitcost_s3;
 
                 // Calculate final mvd_cost_int64
-                mvd_cost_int64 <= selected_cost * lambda_sqrt_integer_reg +
-                           ((selected_cost * lambda_sqrt_decimal_reg) >> LAMBDA_DECIMAL_SHIFT_BITS);
-            end
+                mvd_cost_int64 <= cost_mult_lambda_int + (cost_mult_lambda_dec >> LAMBDA_DECIMAL_SHIFT_BITS);
+            //end
         end
     end
 
     assign ap_ready = 1'b1;
     assign ap_done  = mvd_cost_int64_ap_vld;
-    assign ap_idle  = 0;
-
+    always_comb begin
+        ap_idle = ap_idle_r;
+        if (ap_start && ap_ce) begin
+            ap_idle = 0;
+        end
+        else if (ap_done_r && ap_ce) begin
+            ap_idle = 1;
+        end
+    end
     // Function to calculate MVD coding cost (equivalent to get_mvd_coding_cost_hls_inline)
     function automatic logic [63:0] get_mvd_coding_cost(input logic signed [31:0] mvd_hor, input logic signed [31:0] mvd_ver);
         logic [63:0] bitcost_temp;
